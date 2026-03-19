@@ -1,0 +1,16 @@
+# ISED Converter GUI 依赖库
+# 安装方法: pip install -r requirements.txt
+
+# 核心科学计算库
+numpy>=1.20.0
+
+# GUI框架
+PyQt5>=5.15.0
+
+# 可视化库 (可选)
+matplotlib>=3.4.0
+
+# 数据格式支持
+h5py>=3.0.0
+pandas>=1.3.0
+pyarrow>=5.0.0
