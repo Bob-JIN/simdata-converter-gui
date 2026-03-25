@@ -49,7 +49,7 @@ class SpectrumVisualizer(FigureCanvas):
         Args:
             time_steps: 时间步数组
             wavelengths: 波长数组
-            flux: 流量数据 (形状: [n_wavelengths, n_time_steps])
+            flux: 流量数据 (形状: [n_time_steps, n_wavelengths])
             metadata: 元数据字典（可选）
         """
         self._current_data = {
@@ -76,13 +76,13 @@ class SpectrumVisualizer(FigureCanvas):
         flux = self._current_data['flux']
         time_steps = self._current_data['time_steps']
         
-        n_steps = min(100, flux.shape[1])
+        n_steps = min(100, flux.shape[0])
         
         y_min = np.inf
         y_max = -np.inf
         
         for i in range(n_steps):
-            y_data = flux[:, i]
+            y_data = flux[i, :]
             valid_mask = y_data > 0
             
             if np.any(valid_mask):

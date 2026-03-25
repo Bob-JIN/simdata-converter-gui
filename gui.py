@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
 """
-ised_gui.py: CB2016 .ised格式文件转换工具的图形用户界面
-
-功能特性:
-- 文件选择和批量处理
-- 多语言支持 (中文/英文/法文)
-- 光谱数据可视化
-- 进度显示和错误处理
-- 详细的操作日志
+gui.py: GUI类定义
 """
 
 import sys
@@ -37,7 +30,14 @@ try:
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
-from ised_converter import parse_ised, to_hdf5, to_parquet, to_numpy
+from ised_converter import parse_ised
+from ised_converter import to_hdf5 as ised_to_hdf5
+from ised_converter import to_parquet as ised_to_parquet
+from ised_converter import to_numpy as ised_to_numpy
+from fits_converter import parse_fits
+from fits_converter import to_hdf5 as fits_to_hdf5
+from fits_converter import to_parquet as fits_to_parquet
+from fits_converter import to_numpy as fits_to_numpy
 
 try:
     from spectrum_visualizer import SpectrumVisualizer
@@ -45,180 +45,7 @@ try:
 except ImportError:
     VISUALIZER_AVAILABLE = False
 
-
-TRANSLATIONS = {
-    'zh': {
-        'app_title': 'CB2016 .ised文件转换工具',
-        'file_menu': '文件',
-        'exit': '退出',
-        'help_menu': '帮助',
-        'about': '关于',
-        'language': '语言',
-        'input': '输入',
-        'select_file': '选择文件',
-        'select_folder': '选择文件夹',
-        'input_files': '输入文件',
-        'output': '输出',
-        'select_output_dir': '选择输出目录',
-        'output_dir': '输出目录',
-        'formats': '输出格式',
-        'hdf5': 'HDF5 (.h5)',
-        'parquet': 'Parquet',
-        'numpy': 'NumPy',
-        'convert': '转换',
-        'stop': '停止',
-        'progress': '进度',
-        'log': '日志',
-        'visualization': '可视化',
-        'spectrum_viewer': '光谱查看器',
-        'load_file': '加载文件',
-        'time_step': '时间步',
-        'wavelength': '波长',
-        'flux': '流量',
-        'zoom': '缩放',
-        'x_axis_type': '横轴类型',
-        'wavelength_axis': '波长',
-        'time_step_axis': '时间步',
-        'x_scale': 'X轴刻度',
-        'y_scale': 'Y轴刻度',
-        'linear': '线性',
-        'log': '对数',
-        'autoscale': '自动缩放',
-        'pan': '平移',
-        'error': '错误',
-        'warning': '警告',
-        'info': '信息',
-        'success': '成功',
-        'conversion_started': '转换开始',
-        'conversion_completed': '转换完成',
-        'conversion_failed': '转换失败',
-        'file_not_found': '文件未找到',
-        'invalid_file': '无效文件',
-        'no_files_selected': '未选择文件',
-        'select_output_first': '请先选择输出目录',
-        'about_text': 'CB2016 .ised文件转换工具\n\n版本: 1.0.0\n\n这是一个用于转换CB2016恒星种群合成模型.ised格式文件的图形界面工具。',
-        'no_data_loaded': '请先加载数据文件',
-        'ready': '就绪',
-        'processing': '处理中...',
-        'files_found': '找到 {} 个文件',
-        'converting_file': '正在转换: {} ({}/{})',
-        'all_done': '全部完成！',
-    },
-    'en': {
-        'app_title': 'CB2016 .ised File Converter',
-        'file_menu': 'File',
-        'exit': 'Exit',
-        'help_menu': 'Help',
-        'about': 'About',
-        'language': 'Language',
-        'input': 'Input',
-        'select_file': 'Select File',
-        'select_folder': 'Select Folder',
-        'input_files': 'Input Files',
-        'output': 'Output',
-        'select_output_dir': 'Select Output Directory',
-        'output_dir': 'Output Directory',
-        'formats': 'Output Formats',
-        'hdf5': 'HDF5 (.h5)',
-        'parquet': 'Parquet',
-        'numpy': 'NumPy',
-        'convert': 'Convert',
-        'stop': 'Stop',
-        'progress': 'Progress',
-        'log': 'Log',
-        'visualization': 'Visualization',
-        'spectrum_viewer': 'Spectrum Viewer',
-        'load_file': 'Load File',
-        'time_step': 'Time Step',
-        'wavelength': 'Wavelength',
-        'flux': 'Flux',
-        'zoom': 'Zoom',
-        'x_axis_type': 'X-axis Type',
-        'wavelength_axis': 'Wavelength',
-        'time_step_axis': 'Time Step',
-        'x_scale': 'X Scale',
-        'y_scale': 'Y Scale',
-        'linear': 'Linear',
-        'log': 'Logarithmic',
-        'autoscale': 'Autoscale',
-        'pan': 'Pan',
-        'error': 'Error',
-        'warning': 'Warning',
-        'info': 'Info',
-        'success': 'Success',
-        'conversion_started': 'Conversion started',
-        'conversion_completed': 'Conversion completed',
-        'conversion_failed': 'Conversion failed',
-        'file_not_found': 'File not found',
-        'invalid_file': 'Invalid file',
-        'no_files_selected': 'No files selected',
-        'select_output_first': 'Please select output directory first',
-        'about_text': 'CB2016 .ised File Converter\n\nVersion: 1.0.0\n\nThis is a GUI tool for converting CB2016 stellar population synthesis model .ised files.',
-        'no_data_loaded': 'Please load a data file first',
-        'ready': 'Ready',
-        'processing': 'Processing...',
-        'files_found': '{} files found',
-        'converting_file': 'Converting: {} ({}/{})',
-        'all_done': 'All done!',
-    },
-    'fr': {
-        'app_title': 'Convertisseur de fichiers .ised CB2016',
-        'file_menu': 'Fichier',
-        'exit': 'Quitter',
-        'help_menu': 'Aide',
-        'about': 'À propos',
-        'language': 'Langue',
-        'input': 'Entrée',
-        'select_file': 'Sélectionner un fichier',
-        'select_folder': 'Sélectionner un dossier',
-        'input_files': 'Fichiers d\'entrée',
-        'output': 'Sortie',
-        'select_output_dir': 'Sélectionner le répertoire de sortie',
-        'output_dir': 'Répertoire de sortie',
-        'formats': 'Formats de sortie',
-        'hdf5': 'HDF5 (.h5)',
-        'parquet': 'Parquet',
-        'numpy': 'NumPy',
-        'convert': 'Convertir',
-        'stop': 'Arrêter',
-        'progress': 'Progression',
-        'log': 'Journal',
-        'visualization': 'Visualisation',
-        'spectrum_viewer': 'Visualiseur de spectre',
-        'load_file': 'Charger un fichier',
-        'time_step': 'Pas de temps',
-        'wavelength': 'Longueur d\'onde',
-        'flux': 'Flux',
-        'zoom': 'Zoom',
-        'x_axis_type': 'Type d\'axe X',
-        'wavelength_axis': 'Longueur d\'onde',
-        'time_step_axis': 'Pas de temps',
-        'x_scale': 'Échelle X',
-        'y_scale': 'Échelle Y',
-        'linear': 'Linéaire',
-        'log': 'Logarithmique',
-        'autoscale': 'Ajustement automatique',
-        'pan': 'Panning',
-        'error': 'Erreur',
-        'warning': 'Avertissement',
-        'info': 'Info',
-        'success': 'Succès',
-        'conversion_started': 'Conversion démarrée',
-        'conversion_completed': 'Conversion terminée',
-        'conversion_failed': 'Échec de la conversion',
-        'file_not_found': 'Fichier non trouvé',
-        'invalid_file': 'Fichier invalide',
-        'no_files_selected': 'Aucun fichier sélectionné',
-        'select_output_first': 'Veuillez d\'abord sélectionner le répertoire de sortie',
-        'about_text': 'Convertisseur de fichiers .ised CB2016\n\nVersion: 1.0.0\n\nC\'est un outil GUI pour convertir les fichiers .ised des modèles de synthèse de populations stellaires CB2016.',
-        'no_data_loaded': 'Veuillez d\'abord charger un fichier de données',
-        'ready': 'Prêt',
-        'processing': 'Traitement en cours...',
-        'files_found': '{} fichiers trouvés',
-        'converting_file': 'Conversion: {} ({}/{})',
-        'all_done': 'Tout terminé!',
-    }
-}
+from translations import TRANSLATIONS
 
 
 class ConversionWorker(QThread):
@@ -246,20 +73,38 @@ class ConversionWorker(QThread):
                 self.progress_updated.emit(int((i / total) * 100), f'Converting: {filename} ({i+1}/{total})')
 
                 try:
-                    time_steps, wavelengths, flux, metadata = parse_ised(filepath)
+                    is_ised = filepath.lower().endswith('.ised')
+                    is_fits = filepath.lower().endswith('.fits')
+                    
+                    if is_ised:
+                        time_steps, wavelengths, flux, metadata = parse_ised(filepath)
+                    elif is_fits:
+                        time_steps, wavelengths, flux, metadata = parse_fits(filepath)
+                    else:
+                        raise ValueError(f'不支持的文件格式: {filename}')
+                    
                     base_name = os.path.splitext(filename)[0]
 
                     if 'hdf5' in self.formats:
                         h5_path = os.path.join(self.output_dir, f'{base_name}.h5')
-                        to_hdf5(time_steps, wavelengths, flux, metadata, h5_path)
+                        if is_ised:
+                            ised_to_hdf5(time_steps, wavelengths, flux, metadata, h5_path)
+                        else:
+                            fits_to_hdf5(time_steps, wavelengths, flux, metadata, h5_path)
 
                     if 'parquet' in self.formats:
                         parquet_path = os.path.join(self.output_dir, f'{base_name}.parquet')
-                        to_parquet(time_steps, wavelengths, flux, metadata, parquet_path)
+                        if is_ised:
+                            ised_to_parquet(time_steps, wavelengths, flux, metadata, parquet_path)
+                        else:
+                            fits_to_parquet(time_steps, wavelengths, flux, metadata, parquet_path)
 
                     if 'numpy' in self.formats:
                         numpy_dir = os.path.join(self.output_dir, f'{base_name}_numpy')
-                        to_numpy(time_steps, wavelengths, flux, metadata, numpy_dir)
+                        if is_ised:
+                            ised_to_numpy(time_steps, wavelengths, flux, metadata, numpy_dir)
+                        else:
+                            fits_to_numpy(time_steps, wavelengths, flux, metadata, numpy_dir)
 
                     self.file_finished.emit(filepath, True, '')
                 except Exception as e:
@@ -303,7 +148,7 @@ class ISEDConverterGUI(QMainWindow):
         self.logger.addHandler(file_handler)
 
     def _init_ui(self):
-        self.setWindowTitle('CB2016 .ised文件转换工具')
+        self.setWindowTitle('CB2016 .ised/.fits文件转换工具')
         self.setMinimumSize(1000, 700)
 
         self._create_menu_bar()
@@ -374,10 +219,16 @@ class ISEDConverterGUI(QMainWindow):
         self.btn_select_folder = QPushButton('')
         self.btn_select_folder.clicked.connect(self._select_folder)
         btn_layout.addWidget(self.btn_select_folder)
+        
+        self.btn_clear_list = QPushButton('')
+        self.btn_clear_list.clicked.connect(self._clear_file_list)
+        btn_layout.addWidget(self.btn_clear_list)
         input_layout.addLayout(btn_layout)
 
         self.file_list = QListWidget()
         self.file_list.setSelectionMode(QListWidget.ExtendedSelection)
+        self.file_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.file_list.customContextMenuRequested.connect(self._show_file_list_context_menu)
         input_layout.addWidget(self.file_list)
         left_layout.addWidget(input_group)
 
@@ -507,6 +358,7 @@ class ISEDConverterGUI(QMainWindow):
         self.input_group.setTitle(tr['input'])
         self.btn_select_file.setText(tr['select_file'])
         self.btn_select_folder.setText(tr['select_folder'])
+        self.btn_clear_list.setText(tr['clear_list'])
         self.output_group.setTitle(tr['output'])
         self.btn_output_dir.setText(tr['select_output_dir'])
         self.formats_group.setTitle(tr['formats'])
@@ -533,7 +385,8 @@ class ISEDConverterGUI(QMainWindow):
     def _select_file(self):
         tr = TRANSLATIONS[self.current_lang]
         files, _ = QFileDialog.getOpenFileNames(
-            self, tr['select_file'], '', 'ISED Files (*.ised);;All Files (*)'
+            self, tr['select_file'], '', 
+            f"{tr['all_files']};;{tr['ised_format']};;{tr['fits_format']}"
         )
         if files:
             self.input_files.extend(files)
@@ -545,9 +398,11 @@ class ISEDConverterGUI(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, tr['select_folder'])
         if folder:
             ised_files = list(Path(folder).rglob('*.ised'))
-            self.input_files.extend([str(f) for f in ised_files])
+            fits_files = list(Path(folder).rglob('*.fits'))
+            all_files = ised_files + fits_files
+            self.input_files.extend([str(f) for f in all_files])
             self._update_file_list()
-            self._log(tr['info'], tr['files_found'].format(len(ised_files)))
+            self._log(tr['info'], tr['files_found'].format(len(all_files)))
 
     def _update_file_list(self):
         self.file_list.clear()
@@ -555,6 +410,42 @@ class ISEDConverterGUI(QMainWindow):
             item = QListWidgetItem(os.path.basename(filepath))
             item.setData(Qt.UserRole, filepath)
             self.file_list.addItem(item)
+    
+    def _clear_file_list(self):
+        tr = TRANSLATIONS[self.current_lang]
+        self.input_files = []
+        self.file_list.clear()
+        self._log(tr['info'], '文件列表已清空')
+    
+    def _show_file_list_context_menu(self, position):
+        tr = TRANSLATIONS[self.current_lang]
+        menu = QMenu(self)
+        
+        action_select_all = QAction(tr['select_all'], self)
+        action_select_all.triggered.connect(lambda: self.file_list.selectAll())
+        menu.addAction(action_select_all)
+        
+        action_remove_selected = QAction(tr['remove_selected'], self)
+        action_remove_selected.triggered.connect(self._remove_selected_files)
+        menu.addAction(action_remove_selected)
+        
+        menu.exec_(self.file_list.mapToGlobal(position))
+    
+    def _remove_selected_files(self):
+        tr = TRANSLATIONS[self.current_lang]
+        selected_items = self.file_list.selectedItems()
+        if not selected_items:
+            return
+        
+        removed_count = 0
+        for item in selected_items:
+            filepath = item.data(Qt.UserRole)
+            if filepath in self.input_files:
+                self.input_files.remove(filepath)
+                removed_count += 1
+        
+        self._update_file_list()
+        self._log(tr['info'], f'已删除 {removed_count} 个文件')
 
     def _select_output_dir(self):
         tr = TRANSLATIONS[self.current_lang]
@@ -576,7 +467,13 @@ class ISEDConverterGUI(QMainWindow):
     def _start_conversion(self):
         tr = TRANSLATIONS[self.current_lang]
 
-        if not self.input_files:
+        display_files = []
+        for i in range(self.file_list.count()):
+            item = self.file_list.item(i)
+            filepath = item.data(Qt.UserRole)
+            display_files.append(filepath)
+        
+        if not display_files:
             QMessageBox.warning(self, tr['warning'], tr['no_files_selected'])
             return
         if not self.output_dir:
@@ -592,7 +489,7 @@ class ISEDConverterGUI(QMainWindow):
         self.btn_stop.setEnabled(True)
         self.progress_bar.setValue(0)
 
-        self.worker = ConversionWorker(self.input_files, self.output_dir, formats)
+        self.worker = ConversionWorker(display_files, self.output_dir, formats)
         self.worker.progress_updated.connect(self._on_progress_updated)
         self.worker.file_finished.connect(self._on_file_finished)
         self.worker.finished.connect(self._on_conversion_finished)
@@ -635,11 +532,18 @@ class ISEDConverterGUI(QMainWindow):
     def _load_viz_file(self):
         tr = TRANSLATIONS[self.current_lang]
         filepath, _ = QFileDialog.getOpenFileName(
-            self, tr['load_file'], '', 'ISED Files (*.ised);;All Files (*)'
+            self, tr['load_file'], '', 
+            f"{tr['ised_format']};;{tr['fits_format']};;{tr['all_files']}"
         )
         if filepath:
             try:
-                time_steps, wavelengths, flux, metadata = parse_ised(filepath)
+                if filepath.lower().endswith('.ised'):
+                    time_steps, wavelengths, flux, metadata = parse_ised(filepath)
+                elif filepath.lower().endswith('.fits'):
+                    time_steps, wavelengths, flux, metadata = parse_fits(filepath)
+                else:
+                    raise ValueError(f'不支持的文件格式')
+                
                 self.current_data = {
                     'time_steps': time_steps,
                     'wavelengths': wavelengths,
@@ -670,17 +574,3 @@ class ISEDConverterGUI(QMainWindow):
     def _show_about(self):
         tr = TRANSLATIONS[self.current_lang]
         QMessageBox.about(self, tr['about'], tr['about_text'])
-
-
-def main():
-    app = QApplication(sys.argv)
-    app.setStyle('Fusion')
-
-    window = ISEDConverterGUI()
-    window.show()
-
-    sys.exit(app.exec_())
-
-
-if __name__ == '__main__':
-    main()

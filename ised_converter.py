@@ -78,11 +78,11 @@ def parse_ised(filepath: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[
             wavelengths = np.frombuffer(data[4:4 + inws*4], dtype='<f4')
             
             # 3. 读取所有时间步的光谱数据
-            flux = np.zeros((inws, nsteps), dtype='<f4')
+            flux = np.zeros((nsteps, inws), dtype='<f4')
             for n in range(nsteps):
                 data = read_fortran_record(f)
                 a = struct.unpack('<i', data[0:4])[0]
-                flux[:, n] = np.frombuffer(data[4:4 + inws*4], dtype='<f4')
+                flux[n, :] = np.frombuffer(data[4:4 + inws*4], dtype='<f4')
             
         except Exception as e:
             raise ValueError(f"解析错误: {e}")
@@ -118,8 +118,8 @@ def to_parquet(time_steps, wavelengths, flux, metadata, output_path):
     import pandas as pd
     import pyarrow as pa
     import pyarrow.parquet as pq
-    inws, nsteps = flux.shape
-    wl_idx, ts_idx = np.indices((inws, nsteps))
+    nsteps, inws = flux.shape
+    ts_idx, wl_idx = np.indices((nsteps, inws))
     df = pd.DataFrame({
         'wavelength': wavelengths[wl_idx.flatten()],
         'time_step_index': ts_idx.flatten(),
