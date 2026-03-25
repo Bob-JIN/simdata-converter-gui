@@ -46,77 +46,7 @@ except ImportError:
     VISUALIZER_AVAILABLE = False
 
 from translations import TRANSLATIONS
-
-
-class ConversionWorker(QThread):
-    """后台转换工作线程"""
-    progress_updated = pyqtSignal(int, str)
-    file_finished = pyqtSignal(str, bool, str)
-    finished = pyqtSignal()
-    error_occurred = pyqtSignal(str)
-
-    def __init__(self, files: List[str], output_dir: str, formats: List[str]):
-        super().__init__()
-        self.files = files
-        self.output_dir = output_dir
-        self.formats = formats
-        self._should_stop = False
-
-    def run(self):
-        try:
-            total = len(self.files)
-            for i, filepath in enumerate(self.files):
-                if self._should_stop:
-                    break
-
-                filename = os.path.basename(filepath)
-                self.progress_updated.emit(int((i / total) * 100), f'Converting: {filename} ({i+1}/{total})')
-
-                try:
-                    is_ised = filepath.lower().endswith('.ised')
-                    is_fits = filepath.lower().endswith('.fits')
-                    
-                    if is_ised:
-                        time_steps, wavelengths, flux, metadata = parse_ised(filepath)
-                    elif is_fits:
-                        time_steps, wavelengths, flux, metadata = parse_fits(filepath)
-                    else:
-                        raise ValueError(f'不支持的文件格式: {filename}')
-                    
-                    base_name = os.path.splitext(filename)[0]
-
-                    if 'hdf5' in self.formats:
-                        h5_path = os.path.join(self.output_dir, f'{base_name}.h5')
-                        if is_ised:
-                            ised_to_hdf5(time_steps, wavelengths, flux, metadata, h5_path)
-                        else:
-                            fits_to_hdf5(time_steps, wavelengths, flux, metadata, h5_path)
-
-                    if 'parquet' in self.formats:
-                        parquet_path = os.path.join(self.output_dir, f'{base_name}.parquet')
-                        if is_ised:
-                            ised_to_parquet(time_steps, wavelengths, flux, metadata, parquet_path)
-                        else:
-                            fits_to_parquet(time_steps, wavelengths, flux, metadata, parquet_path)
-
-                    if 'numpy' in self.formats:
-                        numpy_dir = os.path.join(self.output_dir, f'{base_name}_numpy')
-                        if is_ised:
-                            ised_to_numpy(time_steps, wavelengths, flux, metadata, numpy_dir)
-                        else:
-                            fits_to_numpy(time_steps, wavelengths, flux, metadata, numpy_dir)
-
-                    self.file_finished.emit(filepath, True, '')
-                except Exception as e:
-                    self.file_finished.emit(filepath, False, str(e))
-
-            self.progress_updated.emit(100, '')
-            self.finished.emit()
-        except Exception as e:
-            self.error_occurred.emit(str(e))
-
-    def stop(self):
-        self._should_stop = True
+from gui_workers import ConversionWorker, DataSplitWorker
 
 
 class ISEDConverterGUI(QMainWindow):
@@ -128,17 +58,20 @@ class ISEDConverterGUI(QMainWindow):
         self.output_dir: str = ''
         self.current_data: Optional[Dict[str, Any]] = None
         self.worker: Optional[ConversionWorker] = None
+        self.split_input_files: List[str] = []
+        self.split_output_dir: str = ''
+        self.split_worker: Optional[DataSplitWorker] = None
 
         self._setup_logging()
         self._init_ui()
         self._retranslate_ui()
 
     def _setup_logging(self):
-        self.logger = logging.getLogger('ISEDConverter')
+        self.logger = logging.getLogger('DataDealer')
         self.logger.setLevel(logging.DEBUG)
         self.logger.handlers = []
 
-        log_file = Path.home() / '.ised_converter' / f'log_{datetime.now().strftime("%Y%m%d")}.log'
+        log_file = Path.home() / '.data_dealer' / f'log_{datetime.now().strftime("%Y%m%d")}.log'
         log_file.parent.mkdir(exist_ok=True)
 
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
@@ -148,7 +81,7 @@ class ISEDConverterGUI(QMainWindow):
         self.logger.addHandler(file_handler)
 
     def _init_ui(self):
-        self.setWindowTitle('CB2016 .ised/.fits文件转换工具')
+        self.setWindowTitle('数据预处理工具')
         self.setMinimumSize(1000, 700)
 
         self._create_menu_bar()
@@ -197,6 +130,7 @@ class ISEDConverterGUI(QMainWindow):
 
         self._create_converter_tab()
         self._create_visualization_tab()
+        self._create_data_split_tab()
 
     def _create_converter_tab(self):
         tab = QWidget()
@@ -336,6 +270,151 @@ class ISEDConverterGUI(QMainWindow):
 
         self.tab_widget.addTab(tab, '')
 
+    def _create_data_split_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        splitter = QSplitter(Qt.Horizontal)
+
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+
+        input_group = QGroupBox('')
+        self.split_input_group = input_group
+        input_layout = QVBoxLayout(input_group)
+
+        btn_layout = QHBoxLayout()
+        self.btn_split_select_file = QPushButton('')
+        self.btn_split_select_file.clicked.connect(self._split_select_file)
+        btn_layout.addWidget(self.btn_split_select_file)
+
+        self.btn_split_select_folder = QPushButton('')
+        self.btn_split_select_folder.clicked.connect(self._split_select_folder)
+        btn_layout.addWidget(self.btn_split_select_folder)
+        
+        self.btn_split_clear_list = QPushButton('')
+        self.btn_split_clear_list.clicked.connect(self._split_clear_file_list)
+        btn_layout.addWidget(self.btn_split_clear_list)
+        input_layout.addLayout(btn_layout)
+
+        self.split_file_list = QListWidget()
+        self.split_file_list.setSelectionMode(QListWidget.ExtendedSelection)
+        self.split_file_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.split_file_list.customContextMenuRequested.connect(self._split_show_file_list_context_menu)
+        input_layout.addWidget(self.split_file_list)
+        left_layout.addWidget(input_group)
+
+        output_group = QGroupBox('')
+        self.split_output_group = output_group
+        output_layout = QVBoxLayout(output_group)
+
+        self.btn_split_output_dir = QPushButton('')
+        self.btn_split_output_dir.clicked.connect(self._split_select_output_dir)
+        output_layout.addWidget(self.btn_split_output_dir)
+
+        self.split_label_output_dir = QLabel('')
+        output_layout.addWidget(self.split_label_output_dir)
+
+        settings_group = QGroupBox('')
+        self.split_settings_group = settings_group
+        settings_layout = QVBoxLayout(settings_group)
+
+        shuffle_layout = QHBoxLayout()
+        self.lbl_shuffle = QLabel('')
+        shuffle_layout.addWidget(self.lbl_shuffle)
+        self.spin_shuffle = QSpinBox()
+        self.spin_shuffle.setMinimum(0)
+        self.spin_shuffle.setMaximum(999999)
+        self.spin_shuffle.setValue(42)
+        shuffle_layout.addWidget(self.spin_shuffle)
+        settings_layout.addLayout(shuffle_layout)
+
+        train_layout = QHBoxLayout()
+        self.lbl_train = QLabel('')
+        train_layout.addWidget(self.lbl_train)
+        self.spin_train = QSpinBox()
+        self.spin_train.setMinimum(0)
+        self.spin_train.setMaximum(100)
+        self.spin_train.setSingleStep(5)
+        self.spin_train.setValue(70)
+        train_layout.addWidget(self.spin_train)
+        settings_layout.addLayout(train_layout)
+
+        test_layout = QHBoxLayout()
+        self.lbl_test = QLabel('')
+        test_layout.addWidget(self.lbl_test)
+        self.spin_test = QSpinBox()
+        self.spin_test.setMinimum(0)
+        self.spin_test.setMaximum(100)
+        self.spin_test.setSingleStep(5)
+        self.spin_test.setValue(20)
+        test_layout.addWidget(self.spin_test)
+        settings_layout.addLayout(test_layout)
+
+        valid_layout = QHBoxLayout()
+        self.lbl_valid = QLabel('')
+        valid_layout.addWidget(self.lbl_valid)
+        self.spin_valid = QSpinBox()
+        self.spin_valid.setMinimum(0)
+        self.spin_valid.setMaximum(100)
+        self.spin_valid.setSingleStep(5)
+        self.spin_valid.setValue(10)
+        self.spin_valid.setReadOnly(True)
+        valid_layout.addWidget(self.spin_valid)
+        settings_layout.addLayout(valid_layout)
+
+        output_layout.addWidget(settings_group)
+        left_layout.addWidget(output_group)
+
+        btn_split_layout = QHBoxLayout()
+        self.btn_split = QPushButton('')
+        self.btn_split.clicked.connect(self._start_split)
+        self.btn_split.setMinimumHeight(40)
+        btn_split_layout.addWidget(self.btn_split)
+
+        self.btn_split_stop = QPushButton('')
+        self.btn_split_stop.clicked.connect(self._stop_split)
+        self.btn_split_stop.setEnabled(False)
+        self.btn_split_stop.setMinimumHeight(40)
+        btn_split_layout.addWidget(self.btn_split_stop)
+        left_layout.addLayout(btn_split_layout)
+
+        left_layout.addStretch()
+
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+
+        progress_group = QGroupBox('')
+        self.split_progress_group = progress_group
+        progress_layout = QVBoxLayout(progress_group)
+
+        self.split_progress_bar = QProgressBar()
+        progress_layout.addWidget(self.split_progress_bar)
+
+        self.split_label_progress = QLabel('')
+        progress_layout.addWidget(self.split_label_progress)
+        right_layout.addWidget(progress_group)
+
+        log_group = QGroupBox('')
+        self.split_log_group = log_group
+        log_layout = QVBoxLayout(log_group)
+
+        self.split_log_text = QTextEdit()
+        self.split_log_text.setReadOnly(True)
+        self.split_log_text.setFont(QFont('Consolas', 9))
+        log_layout.addWidget(self.split_log_text)
+        right_layout.addWidget(log_group)
+
+        splitter.addWidget(left_panel)
+        splitter.addWidget(right_panel)
+        splitter.setSizes([400, 600])
+
+        layout.addWidget(splitter)
+        self.tab_widget.addTab(tab, '')
+
+        self.spin_train.valueChanged.connect(self._update_valid_ratio)
+        self.spin_test.valueChanged.connect(self._update_valid_ratio)
+
     def _create_status_bar(self):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
@@ -354,6 +433,7 @@ class ISEDConverterGUI(QMainWindow):
 
         self.tab_widget.setTabText(0, tr['input'])
         self.tab_widget.setTabText(1, tr['visualization'])
+        self.tab_widget.setTabText(2, tr['data_split'])
 
         self.input_group.setTitle(tr['input'])
         self.btn_select_file.setText(tr['select_file'])
@@ -375,6 +455,23 @@ class ISEDConverterGUI(QMainWindow):
 
         self.label_status.setText(tr['ready'])
         self._log(tr['info'], tr['app_title'] + ' started')
+
+        self.split_input_group.setTitle(tr['input'])
+        self.btn_split_select_file.setText(tr['select_file'])
+        self.btn_split_select_folder.setText(tr['select_folder'])
+        self.btn_split_clear_list.setText(tr['clear_list'])
+        self.split_output_group.setTitle(tr['output'])
+        self.btn_split_output_dir.setText(tr['select_output_dir'])
+        self.split_settings_group.setTitle(tr['formats'])
+        self.btn_split.setText(tr['split'])
+        self.btn_split_stop.setText(tr['stop'])
+        self.split_progress_group.setTitle(tr['progress'])
+        self.split_log_group.setTitle(tr['log'])
+        
+        self.lbl_shuffle.setText(tr['shuffle_num'])
+        self.lbl_train.setText(tr['train_ratio'])
+        self.lbl_test.setText(tr['test_ratio'])
+        self.lbl_valid.setText(tr['valid_ratio'])
 
     def _change_language(self, lang_code: str):
         for code, action in self.lang_actions.items():
@@ -574,3 +671,203 @@ class ISEDConverterGUI(QMainWindow):
     def _show_about(self):
         tr = TRANSLATIONS[self.current_lang]
         QMessageBox.about(self, tr['about'], tr['about_text'])
+
+    def _split_select_file(self):
+        tr = TRANSLATIONS[self.current_lang]
+        files, _ = QFileDialog.getOpenFileNames(
+            self, tr['select_file'], '', 
+            f"{tr['hdf5_format']};;{tr['all_files']}"
+        )
+        if files:
+            self.split_input_files.extend(files)
+            self._split_update_file_list()
+            self._split_log(tr['info'], tr['files_found'].format(len(files)))
+
+    def _split_select_folder(self):
+        tr = TRANSLATIONS[self.current_lang]
+        folder = QFileDialog.getExistingDirectory(self, tr['select_folder'])
+        if folder:
+            hdf5_files = list(Path(folder).rglob('*.h5'))
+            hdf5_files.extend(list(Path(folder).rglob('*.hdf5')))
+            self.split_input_files.extend([str(f) for f in hdf5_files])
+            self._split_update_file_list()
+            self._split_log(tr['info'], tr['files_found'].format(len(hdf5_files)))
+
+    def _split_update_file_list(self):
+        self.split_file_list.clear()
+        for filepath in self.split_input_files:
+            item = QListWidgetItem(os.path.basename(filepath))
+            item.setData(Qt.UserRole, filepath)
+            self.split_file_list.addItem(item)
+    
+    def _split_clear_file_list(self):
+        tr = TRANSLATIONS[self.current_lang]
+        self.split_input_files = []
+        self.split_file_list.clear()
+        self._split_log(tr['info'], '文件列表已清空')
+    
+    def _split_show_file_list_context_menu(self, position):
+        tr = TRANSLATIONS[self.current_lang]
+        menu = QMenu(self)
+        
+        action_select_all = QAction(tr['select_all'], self)
+        action_select_all.triggered.connect(lambda: self.split_file_list.selectAll())
+        menu.addAction(action_select_all)
+        
+        action_remove_selected = QAction(tr['remove_selected'], self)
+        action_remove_selected.triggered.connect(self._split_remove_selected_files)
+        menu.addAction(action_remove_selected)
+        
+        menu.exec_(self.split_file_list.mapToGlobal(position))
+    
+    def _split_remove_selected_files(self):
+        tr = TRANSLATIONS[self.current_lang]
+        selected_items = self.split_file_list.selectedItems()
+        if not selected_items:
+            return
+        
+        removed_count = 0
+        for item in selected_items:
+            filepath = item.data(Qt.UserRole)
+            if filepath in self.split_input_files:
+                self.split_input_files.remove(filepath)
+                removed_count += 1
+        
+        self._split_update_file_list()
+        self._split_log(tr['info'], f'已删除 {removed_count} 个文件')
+
+    def _split_select_output_dir(self):
+        tr = TRANSLATIONS[self.current_lang]
+        folder = QFileDialog.getExistingDirectory(self, tr['select_output_dir'])
+        if folder:
+            self.split_output_dir = folder
+            self.split_label_output_dir.setText(folder)
+
+    def _update_valid_ratio(self):
+        train = self.spin_train.value()
+        test = self.spin_test.value()
+        valid = max(0, 100 - train - test)
+        self.spin_valid.setValue(valid)
+
+    def _check_hdf5_files(self, files):
+        """检查所有HDF5文件的结构一致性"""
+        import h5py
+        tr = TRANSLATIONS[self.current_lang]
+        
+        for filepath in files:
+            filename = os.path.basename(filepath)
+            try:
+                with h5py.File(filepath, 'r') as f:
+                    first_dims = {}
+                    for key in f.keys():
+                        if key == 'wavelengths':
+                            continue
+                        dataset = f[key]
+                        if len(dataset.shape) > 0:
+                            first_dims[key] = dataset.shape[0]
+                    
+                    if not first_dims:
+                        return False, f'{filename}: HDF5文件中没有有效的数据集'
+                    
+                    dim_values = list(first_dims.values())
+                    sample_count = max(set(dim_values), key=dim_values.count)
+                    
+                    inconsistent_keys = [key for key, dim in first_dims.items() if dim != sample_count]
+                    if inconsistent_keys:
+                        return False, f'{filename}: 以下键的第一个维度与样本数({sample_count})不一致: {", ".join(inconsistent_keys)}'
+                        
+            except Exception as e:
+                return False, f'{filename}: {str(e)}'
+        
+        return True, ''
+
+    def _start_split(self):
+        tr = TRANSLATIONS[self.current_lang]
+
+        display_files = []
+        for i in range(self.split_file_list.count()):
+            item = self.split_file_list.item(i)
+            filepath = item.data(Qt.UserRole)
+            display_files.append(filepath)
+        
+        if not display_files:
+            QMessageBox.warning(self, tr['warning'], tr['no_files_selected'])
+            return
+        if not self.split_output_dir:
+            QMessageBox.warning(self, tr['warning'], tr['select_output_first'])
+            return
+
+        train_percent = self.spin_train.value()
+        test_percent = self.spin_test.value()
+        valid_percent = self.spin_valid.value()
+        shuffle_num = self.spin_shuffle.value()
+
+        if train_percent + test_percent + valid_percent != 100:
+            QMessageBox.warning(self, tr['warning'], '百分比总和必须为100')
+            return
+
+        ok, error_msg = self._check_hdf5_files(display_files)
+        if not ok:
+            QMessageBox.warning(self, tr['warning'], error_msg)
+            return
+
+        self.btn_split.setEnabled(False)
+        self.btn_split_stop.setEnabled(True)
+        self.split_progress_bar.setValue(0)
+
+        train_ratio = train_percent / 100.0
+        test_ratio = test_percent / 100.0
+        valid_ratio = valid_percent / 100.0
+
+        self.split_worker = DataSplitWorker(display_files, self.split_output_dir, 
+                                             train_ratio, test_ratio, valid_ratio, shuffle_num)
+        self.split_worker.progress_updated.connect(self._split_on_progress_updated)
+        self.split_worker.file_finished.connect(self._split_on_file_finished)
+        self.split_worker.finished.connect(self._split_on_split_finished)
+        self.split_worker.error_occurred.connect(self._split_on_split_error)
+        self.split_worker.start()
+
+        self._split_log(tr['info'], tr['split_started'])
+        self.label_status.setText(tr['processing'])
+
+    def _stop_split(self):
+        if self.split_worker:
+            self.split_worker.stop()
+            self.btn_split_stop.setEnabled(False)
+
+    def _split_on_progress_updated(self, value: int, message: str):
+        self.split_progress_bar.setValue(value)
+        if message:
+            self.split_label_progress.setText(message)
+
+    def _split_on_file_finished(self, filepath: str, success: bool, split_name: str):
+        tr = TRANSLATIONS[self.current_lang]
+        filename = os.path.basename(filepath)
+        if success:
+            self._split_log(tr['success'], f'{filename}: {tr["split_completed"]} -> {split_name}')
+        else:
+            self._split_log(tr['error'], f'{filename}: {tr["split_failed"]} - {split_name}')
+
+    def _split_on_split_finished(self):
+        tr = TRANSLATIONS[self.current_lang]
+        self.btn_split.setEnabled(True)
+        self.btn_split_stop.setEnabled(False)
+        self.label_status.setText(tr['ready'])
+        self._split_log(tr['success'], tr['all_done'])
+
+    def _split_on_split_error(self, error_msg: str):
+        tr = TRANSLATIONS[self.current_lang]
+        self._split_log(tr['error'], error_msg)
+        QMessageBox.critical(self, tr['error'], error_msg)
+
+    def _split_log(self, level: str, message: str):
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        color_map = {
+            'error': 'red',
+            'warning': 'orange',
+            'success': 'green',
+            'info': 'blue'
+        }
+        color = color_map.get(level, 'black')
+        self.split_log_text.append(f'<span style="color:{color}">[{timestamp}] {level.upper()}: {message}</span>')
+        self.logger.info(f'{level}: {message}')

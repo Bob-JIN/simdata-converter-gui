@@ -1,7 +1,7 @@
 __pycache__
 backup
 Michaela_files
-output
+output*
 test_*
 test_metadata.py 
 test_dynamic_fields.py
